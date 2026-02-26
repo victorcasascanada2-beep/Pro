@@ -7,13 +7,13 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/subida-fotos-drive/pro-app']
 
-  # 3. DESPLEGAR Y ACTUALIZAR EL LINK (Aquí es donde ocurre la magia)
+  # 3. DESPLEGAR Y ACTUALIZAR EL LINK
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'agricolanoroeste-escalable'  # Tu servicio
+      - 'agricolanoroeste-escalable'
       - '--image'
       - 'gcr.io/subida-fotos-drive/pro-app'
       - '--region'
@@ -21,3 +21,7 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+
+# ESTA ES LA PARTE QUE ARREGLA TU ERROR:
+options:
+  logging: CLOUD_LOGGING_ONLY
