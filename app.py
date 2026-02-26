@@ -65,32 +65,27 @@ def calcular_extras(cv, pala, anclajes, trip, tdf, aire, autoguiado, v_g, v_p):
 
 
 # ==========================================
-# 3. CONTROL DE ACCESO (VERSIÓN DUAL ROBUSTA)
+# 3. CONTROL DE ACCESO (MÉTODO DUAL EXTRAÍDO)
 # ==========================================
-CREDS = None
+# Detectamos si estamos en Cloud Run mediante variables del sistema de Google
+ES_CLOUD_RUN = bool(os.environ.get("K_SERVICE") or os.environ.get("K_REVISION"))
 
-# Primero intentamos pillar las variables de entorno de Cloud Run (es más rápido)
-env_google = os.environ.get("google")
-
-if env_google:
-    import json
+def get_creds():
+    # Si es Cloud Run, devolvemos None (Vertex AI usará la cuenta de servicio por defecto)
+    if ES_CLOUD_RUN: 
+        return None
+    
+    # Si no es Cloud Run (es Local o Streamlit Cloud), buscamos el archivo de secretos
     try:
-        CREDS = json.loads(env_google)
-    except Exception as e:
-        st.error(f"Error parseando JSON de variable 'google': {e}")
-else:
-    # Si no hay variable de entorno, intentamos st.secrets SOLO si estamos en Streamlit Cloud
-    # Usamos un try/except para que no explote en Cloud Run
-    try:
-        if "google" in st.secrets:
-            CREDS = dict(st.secrets["google"])
+        # Aquí es donde Streamlit busca el archivo .toml
+        return dict(st.secrets["google"])
     except Exception:
-        # Si llegamos aquí, es que no hay ni variable ni secrets.toml
-        CREDS = None
+        # Si no lo encuentra, mostramos error y paramos
+        st.error("❌ Faltan secretos locales: Asegúrate de tener st.secrets['google'] configurado.")
+        st.stop()
 
-if CREDS is None:
-    st.error("❌ No se han encontrado credenciales (ni en variables de entorno ni en secrets).")
-    st.stop()
+# Invocamos la función para tener las credenciales listas
+CREDS = get_creds()
     
 # 1. Comprobación de URL (Para que no tengan que escribir nada si ya entraron una vez)
 agente_url = st.query_params.get("agente")
