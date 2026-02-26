@@ -13,7 +13,7 @@ from google.oauth2 import service_account
 ID_UNIDAD_COMPARTIDA = "0AEU0RHjR-mDOUk9PVA"
 ID_CARPETA_RAIZ = "1jHfVRjC6I0qPV9ArDIkhoKCYP7Iepmt9"
 ID_EXCEL_HISTORIAL = "1fzedPLwRX4T0sG860ITmcYHp3nHu3GGkxW--y8Qs4v4"
-NOMBRE_FICHERO_USUARIOS = "vendedores.txt"  # Centralizamos el nombre aquí
+NOMBRE_FICHERO_USUARIOS = "usuarios.txt"  # Centralizamos el nombre aquí
 
 
 def _get_credentials(creds_dict=None):
