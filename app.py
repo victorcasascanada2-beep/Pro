@@ -139,8 +139,7 @@ if "result" not in st.session_state:
 
         fotos = st.file_uploader("Fotos (mín. 4)", accept_multiple_files=True)
         enviar = st.form_submit_button("🚀 REALIZAR TASACIÓN")
-
-    if enviar:
+        
         # ==========================================
         # 4. PROCESO CON CHIVATOS AGUAS ARRIBA
         # ==========================================
