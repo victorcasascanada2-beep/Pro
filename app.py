@@ -65,17 +65,33 @@ def calcular_extras(cv, pala, anclajes, trip, tdf, aire, autoguiado, v_g, v_p):
 
 
 # ==========================================
-# 3. CONTROL DE ACCESO (VERSIÓN ANTI-HISTORIAL)
+# 3. CONTROL DE ACCESO (VERSIÓN DUAL ROBUSTA)
 # ==========================================
-# Intenta pillar los secretos de Streamlit, si no, busca en variables de entorno de Cloud Run
-if "google" in st.secrets:
-    CREDS = dict(st.secrets["google"])
-elif os.environ.get("google"):
-    import json
-    CREDS = json.loads(os.environ.get("google"))
-else:
-    CREDS = None
+CREDS = None
 
+# Primero intentamos pillar las variables de entorno de Cloud Run (es más rápido)
+env_google = os.environ.get("google")
+
+if env_google:
+    import json
+    try:
+        CREDS = json.loads(env_google)
+    except Exception as e:
+        st.error(f"Error parseando JSON de variable 'google': {e}")
+else:
+    # Si no hay variable de entorno, intentamos st.secrets SOLO si estamos en Streamlit Cloud
+    # Usamos un try/except para que no explote en Cloud Run
+    try:
+        if "google" in st.secrets:
+            CREDS = dict(st.secrets["google"])
+    except Exception:
+        # Si llegamos aquí, es que no hay ni variable ni secrets.toml
+        CREDS = None
+
+if CREDS is None:
+    st.error("❌ No se han encontrado credenciales (ni en variables de entorno ni en secrets).")
+    st.stop()
+    
 # 1. Comprobación de URL (Para que no tengan que escribir nada si ya entraron una vez)
 agente_url = st.query_params.get("agente")
 
