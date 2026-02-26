@@ -67,7 +67,14 @@ def calcular_extras(cv, pala, anclajes, trip, tdf, aire, autoguiado, v_g, v_p):
 # ==========================================
 # 3. CONTROL DE ACCESO (VERSIÓN ANTI-HISTORIAL)
 # ==========================================
-CREDS = dict(st.secrets["google"]) if "google" in st.secrets else None
+# Intenta pillar los secretos de Streamlit, si no, busca en variables de entorno de Cloud Run
+if "google" in st.secrets:
+    CREDS = dict(st.secrets["google"])
+elif os.environ.get("google"):
+    import json
+    CREDS = json.loads(os.environ.get("google"))
+else:
+    CREDS = None
 
 # 1. Comprobación de URL (Para que no tengan que escribir nada si ya entraron una vez)
 agente_url = st.query_params.get("agente")
