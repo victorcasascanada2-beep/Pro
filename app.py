@@ -16,7 +16,7 @@ from streamlit_js_eval import get_geolocation
 # 1. CONFIGURACIÓN Y ESTADO
 # ==========================================
 st.set_page_config(page_title="Tasador Pro", layout="centered", page_icon="🚜")
-if os.path.exists("Transparente.png"): st.image("Transparente.png", width=320)
+if os.path.exists("Transparente.png"): st.image("Transparente.png", width=321)
 
 aplicar_estilo_john_deere()
 
