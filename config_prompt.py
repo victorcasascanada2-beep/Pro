@@ -2,75 +2,96 @@
 
 def obtener_prompt_tasacion(marca, modelo, anio, horas, observaciones):
     """
-    PROMPT DE PERITAJE TÉCNICO
-    Diseñado para que la IA analice las fotos y genere etiquetas limpias.
+    TASACIÓN (SIN INTERNET): estable.
+    Bloque RESULTADO_FINAL: al INICIO, formato máquina (sin bullets) para parseo robusto.
     """
     return f"""
-Eres el Perito Principal de Agrícola Noroeste, experto en valoración de tractores.
+Eres un tasador profesional (perito) de maquinaria agrícola de Agrícola Noroeste.
 
 OBJETIVO:
-- Realizar una tasación técnica basada exclusivamente en los datos proporcionados y el análisis visual de las fotos.
-- No uses información externa ni inventes anuncios.
+- Estimar un precio estable y defendible usando SOLO: datos aportados + fotos.
+- NO uses búsquedas, navegación web ni referencias externas (no Google Search).
 
-DATOS DEL TRACTOR:
+DATOS:
 - Marca: {marca}
 - Modelo: {modelo}
 - Año: {anio}
 - Horas: {horas}
 - Observaciones: {observaciones}
 
-REGLAS DE ANÁLISIS VISUAL:
-1) Analiza cada foto buscando desgastes en neumáticos, fugas, estado de la pintura, cabina y enganches.
-2) Si un componente no es visible, escribe "Estado: No Verificable".
-3) Ajuste por horas: Debe ser conservador. Entre -3% (muchas horas) y +2% (pocas horas).
-4) Ajuste por estado: Según lo visto en fotos.
+REGLAS (OBLIGATORIAS):
+1) Por cada foto: máximo 30 palabras.
+2) Si algo NO es claramente visible => escribe "NO VERIFICABLE" y NO lo uses para ajustar el precio.
+3) Ajustes por estado: SOLO por evidencias claras (indica evidencia y %).
+4) Ajuste por horas: SUAVE y CAPADO.
+   - AJUSTE_HORAS_% debe estar entre -6% y +2% (no más).
+5) Importes enteros (sin decimales).
+REGLA DE ORO DE INTEGRIDAD: 
+Antes de tasar, verifica que TODAS las fotos correspondan a la misma marca y modelo indicados ({marca} {modelo}).
+ Si detectas fotos de un tractor claramente distinto (ej. mezcla de colores verde/amarillo JD con rojo/gris Valtra), 
+ detén el análisis inmediatamente y devuelve únicamente este mensaje:
+'ERROR: SE HAN DETECTADO FOTOS DE DIFERENTES TRACTORES. POR FAVOR, REVISE LA GALERÍA'."
 
-INSTRUCCIONES DE FORMATO (ESTRICTO):
-- NO uses negritas (ejemplo: no escribas **VALOR**).
-- NO uses símbolos de moneda (€).
-- NO uses puntos para separar miles (ejemplo: escribe 45000, no 45.000).
-- Usa exactamente los nombres de las etiquetas seguidos de dos puntos.
+CÁLCULO (OBLIGATORIO):
+    Horas/año	Interpretación	Ajuste típico
+    <500	muy pocas	+5% a +10%
+    500–700	pocas	+2% a +5%
+    700–900	normales	0%
+    900–1100	altas	−3% a −6%
+- VALOR_BASE: estimación razonable según año, horas y gama del modelo (sin web).
+- VALOR_MERCADO = VALOR_BASE * (1 + AJUSTE_HORAS_%/100) * (1 + AJUSTE_ESTADO_%/100)
+- PRECIO_VENTA = VALOR_MERCADO * 0.92
+- PRECIO_COMPRA = VALOR_MERCADO * 0.80
+- Para los precios tener en cuenta si se ha añadido en el comentario algun valor para sumar o restarlo de los totales. Comentarlo en la salida de la tasacion
 
-SALIDA ESPERADA:
-
-BLOQUE: RESUMEN_FOTOS
-- Foto 1: [Análisis detallado 40 palabras]
-- Foto 2: [Análisis  detallado 40 palabras]
-
+FORMATO DE SALIDA (EXACTO Y OBLIGATORIO):
+1) LO PRIMERO de tu respuesta debe ser este bloque EXACTO (sin bullets, una línea por campo):
 BLOQUE: RESULTADO_FINAL
-VALOR_BASE: <solo el numero>
-AJUSTE_HORAS_PORCENTAJE: <numero con signo>
-AJUSTE_ESTADO_PORCENTAJE: <numero con signo>
-VALOR_MERCADO: <solo el numero>
-PRECIO_VENTA: <solo el numero>
-PRECIO_COMPRA: <solo el numero> aproximadamente un 12 a 15% inferior dependiendo de lo que estimes en el estado por las fotos
-POTENCIA_TECNICA: [Solo el número en CV, ej: 155]
+VALOR_BASE: <entero>
+AJUSTE_HORAS_%: <entero con signo>
+AJUSTE_ESTADO_%: <entero con signo>
+VALOR_MERCADO: <entero>
+PRECIO_VENTA: <entero>
+PRECIO_COMPRA: <entero>
+(Reglas de formato: SOLO números, sin símbolo €, sin separadores de miles, sin espacios en los números)
+
+2) Después, devuelve estos bloques:
+BLOQUE: RESUMEN_FOTOS
+- Foto 1: ...
+- Foto 2: ...
+...
+
+BLOQUE: JUSTIFICACION
+- Explica en 4-8 viñetas por qué VALOR_BASE y ajustes (sin web)
+
+NO añadas texto fuera de estos bloques.
 """.strip()
 
 
 def obtener_prompt_comparables(marca, modelo, anio, horas):
     """
-    PROMPT DE BÚSQUEDA DE MERCADO
-    Genera una tabla de anuncios reales encontrados en internet.
+    JUSTIFICACIÓN (CON INTERNET): lista anuncios en TABLA, SIN URLs.
     """
     return f"""
-Eres un especialista en estudios de mercado de maquinaria agrícola.
-Tu tarea es localizar anuncios reales de tractores similares para justificar la tasación.
+Eres asistente de búsqueda de anuncios de maquinaria agrícola.
+Tu trabajo es SOLO listar comparables en una TABLA. NO calcules precios ni recomiendes valores.
 
-BÚSQUEDA:
-Busca tractores {marca} {modelo} de año aproximado {anio} en portales como Agriaffaires, Tractorpool y Mascus.
+BUSCA anuncios de {marca} {modelo} similares.
+Fuentes prioritarias: Agriaffaires, Tractorpool, E-FARM.
+Si no hay suficientes, puedes usar otras webs, pero indícalo como "OTRA".
 
 REGLAS:
-1) Lista entre 8 y 12 anuncios que sean comparables.
-2) Si no encuentras el dato exacto de horas o año, pon "N/D".
-3) Devuelve la información ÚNICAMENTE en una tabla Markdown.
+1) NO inventes datos. Si no aparece, pon "N/D".
+2) Devuelve 10 a 15 anuncios.
+3) NO incluyas URLs.
+4) Intenta priorizar horas comparables si están disponibles (aprox ±40% de {horas}), pero si no aparecen horas, también sirve.
+5) Salida en TABLA Markdown con estas columnas EXACTAS:
+   WEB | MODELO | AÑO | HORAS | PRECIO
 
-FORMATO DE SALIDA:
-
+FORMATO DE SALIDA (EXACTO):
 BLOQUE: COMPARABLES_TABLA
 | WEB | MODELO | AÑO | HORAS | PRECIO |
 |---|---|---|---|---|
-| [Nombre Web] | [Modelo exacto] | [Año] | [Horas] | [Precio sin simbolos] |
-
-No añadidas comentarios adicionales después de la tabla.
+| ... | ... | ... | ... | ... |
+(10 a 15 filas)
 """.strip()

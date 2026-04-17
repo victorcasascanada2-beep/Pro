@@ -1,174 +1,207 @@
-# ia_engine.py — VERSIÓN EXTENDIDA (MÁXIMA CALIDAD DE SALIDA)
-import io
-import random
-import time
-from typing import List, Dict, Any, Optional
+# ia_engine.py — Motor IA con Claude en Vertex AI (Anthropic)
+#
+# Modos de conexión:
+#   - Cloud Run (ADC):       conectar_vertex(creds_dict=None)
+#   - Local / Streamlit:     conectar_vertex(creds_dict=dict(st.secrets["google"]))
+#
+# Modelo: ajusta CLAUDE_MODEL al que hayas contratado en Vertex AI.
+# La búsqueda de comparables usa web_search tool si el modelo la soporta.
 
-from google import genai
-from google.oauth2 import service_account
+import io
+import base64
 from PIL import Image, ImageOps
 
 import config_prompt
 
-# Tipado opcional de google.genai
+# ── Dependencias Anthropic ─────────────────────────────────────────────────
 try:
-    from google.genai import types
+    from anthropic import AnthropicVertex
+    _HAS_ANTHROPIC = True
+except ImportError:
+    _HAS_ANTHROPIC = False
 
-    _HAS_TYPES = True
-except Exception:
-    _HAS_TYPES = False
+# ── Dependencias Google Auth (modo local con service account) ──────────────
+try:
+    from google.oauth2 import service_account
+    import google.auth.transport.requests
+    _HAS_GOOGLE_AUTH = True
+except ImportError:
+    _HAS_GOOGLE_AUTH = False
 
-
-# ============================================================
-# 1. OBJETO DE CARGA EN MEMORIA
-# ============================================================
-class InMemoryUpload:
-    def __init__(self, data: bytes, name: str = "foto.jpg", mime: str = "image/jpeg"):
-        self.data = data
-        self.name = name
-        self.type = mime
-
-    def read(self) -> bytes:
-        return self.data
-
-
-def preparar_fotos_para_ai(fotos_state: List[Dict[str, Any]]) -> List[InMemoryUpload]:
-    return [InMemoryUpload(f["data"], f.get("name", "foto.jpg"), f.get("type", "image/jpeg")) for f in fotos_state]
+# ── Configuración ──────────────────────────────────────────────────────────
+CLAUDE_MODEL    = "claude-sonnet-4-5@20251001"  # Ajusta al modelo de tu contrato Vertex
+VERTEX_LOCATION = "us-east5"                    # Región con Claude habilitado en Vertex
+VERTEX_PROJECT  = "subida-fotos-drive"          # Tu proyecto GCP
 
 
-# ============================================================
-# 2. CONEXIÓN A VERTEX AI
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# CONEXIÓN
+# ─────────────────────────────────────────────────────────────────────────────
+
 def conectar_vertex(creds_dict=None):
-    # --- MODO LOCAL ---
-    if creds_dict:
-        # Extraemos y limpiamos la clave privada
-        pk = str(creds_dict.get("private_key", "")).replace("\\n", "\n").strip()
+    """
+    Devuelve un cliente AnthropicVertex.
 
-        auth_info = {
-            "type": "service_account",
-            "project_id": creds_dict.get("project_id"),
-            "private_key": pk,
-            "client_email": creds_dict.get("client_email"),
-            "token_uri": "https://oauth2.googleapis.com/token",
-        }
+    creds_dict=None  → Cloud Run/ADC: las credenciales se infieren del entorno.
+    creds_dict!=dict → Local/Streamlit: service account desde st.secrets["google"].
+    """
+    if not _HAS_ANTHROPIC:
+        raise ImportError("Instala: pip install anthropic[vertex]")
 
-        # La clave de la dualidad: el SCOPE maestro
-        google_creds = service_account.Credentials.from_service_account_info(
-            auth_info,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    if creds_dict is None:
+        # Cloud Run: Application Default Credentials (sin credenciales explícitas)
+        return AnthropicVertex(
+            project_id=VERTEX_PROJECT,
+            region=VERTEX_LOCATION,
         )
 
-        return genai.Client(
-            vertexai=True,
-            project=auth_info["project_id"],
-            location="us-central1",
-            credentials=google_creds
-        )
+    # Local / Streamlit: service account JSON
+    if not _HAS_GOOGLE_AUTH:
+        raise ImportError("Instala: pip install google-auth")
 
-    # --- MODO NUBE (Cloud Run) ---
-    return genai.Client(
-        vertexai=True,
-        project="subida-fotos-drive",  # Tu ID de proyecto real
-        location="us-central1"
+    pk = str(creds_dict.get("private_key", ""))
+    clean_key = pk.strip().strip('"').strip("'").replace("\\n", "\n")
+
+    auth_info = {
+        "type": "service_account",
+        "project_id": creds_dict.get("project_id", VERTEX_PROJECT),
+        "private_key": clean_key,
+        "client_email": creds_dict.get("client_email"),
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+
+    google_creds = service_account.Credentials.from_service_account_info(
+        auth_info,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    # Refresca el token antes de pasárselo a AnthropicVertex
+    request = google.auth.transport.requests.Request()
+    google_creds.refresh(request)
+
+    return AnthropicVertex(
+        project_id=auth_info["project_id"],
+        region=VERTEX_LOCATION,
+        credentials=google_creds,
     )
 
 
-# ============================================================
-# 3. UTILIDADES DE IMAGEN
-# ============================================================
-def _normalizar_imagen_a_jpeg_bytes(uploaded_file, max_side: int = 1280) -> bytes:
-    if hasattr(uploaded_file, "read"):
-        raw = uploaded_file.read()
-    else:
-        raw = uploaded_file if isinstance(uploaded_file, bytes) else b""
+# ─────────────────────────────────────────────────────────────────────────────
+# UTILIDADES DE IMAGEN
+# ─────────────────────────────────────────────────────────────────────────────
 
-    with Image.open(io.BytesIO(raw)) as img:
-        img = ImageOps.exif_transpose(img)
-        img = img.convert("RGB")
-        w, h = img.size
-        scale = max(w, h) / float(max_side)
-        if scale > 1.0:
-            img = img.resize((int(w / scale), int(h / scale)), Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85, optimize=True)
-        return buf.getvalue()
+def _normalizar_imagen_a_jpeg_bytes(uploaded_file, max_side=800, quality=60) -> bytes:
+    img = Image.open(uploaded_file)
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
+
+    w, h = img.size
+    scale = max(w, h) / float(max_side)
+    if scale > 1.0:
+        new_w = int(round(w / scale))
+        new_h = int(round(h / scale))
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality, optimize=True)
+    return buf.getvalue()
 
 
-# ============================================================
-# 4. FLUJO DE PERITAJE (CON MÁS TOKENS Y BÚSQUEDA)
-# ============================================================
-def realizar_peritaje(client, marca, modelo, anio, horas, observaciones, lista_fotos):
-    # 1. Ordenar fotos
+def _imagen_a_bloque(data: bytes) -> dict:
+    """Convierte bytes JPEG al formato de imagen de la Anthropic Messages API."""
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": "image/jpeg",
+            "data": base64.b64encode(data).decode("utf-8"),
+        },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLAMADAS AL MODELO
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extraer_texto(message) -> str:
+    """Extrae todo el texto plano de una respuesta Anthropic Messages."""
+    partes = []
+    for bloque in message.content:
+        if hasattr(bloque, "text"):
+            partes.append(bloque.text)
+        elif isinstance(bloque, dict) and bloque.get("type") == "text":
+            partes.append(bloque["text"])
+    return "\n".join(partes)
+
+
+def _tasacion_sin_busqueda(client, prompt_tasacion: str, fotos_sorted) -> str:
+    """
+    Paso 1 – Tasación estable SIN búsqueda web.
+    Envía el prompt de texto + todas las imágenes a Claude.
+    """
+    content = [{"type": "text", "text": prompt_tasacion}]
+    for f in fotos_sorted:
+        data = _normalizar_imagen_a_jpeg_bytes(f)
+        content.append(_imagen_a_bloque(data))
+
+    message = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=4096,
+        temperature=0.05,
+        messages=[{"role": "user", "content": content}],
+    )
+    return _extraer_texto(message)
+
+
+def _comparables_con_busqueda(client, prompt_comparables: str) -> str:
+    """
+    Paso 2 – Comparables de mercado.
+    Usa web_search tool si el modelo lo soporta; si no, responde sin búsqueda.
+    """
     try:
-        fotos_sorted = sorted(lista_fotos, key=lambda f: f.name if hasattr(f, 'name') else f.get('name', ''))
-    except:
-        fotos_sorted = lista_fotos
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2048,
+            temperature=0.0,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": prompt_comparables}],
+        )
+        return _extraer_texto(message)
+    except Exception:
+        # Fallback: respuesta sin búsqueda web
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2048,
+            temperature=0.0,
+            messages=[{"role": "user", "content": prompt_comparables}],
+        )
+        return _extraer_texto(message)
 
-    # 2. Preparar fotos para Gemini (Máximo 15 fotos para más detalle)
-    parts = []
-    for f in fotos_sorted[:15]:
-        raw_data = f.read() if hasattr(f, "read") else (f["data"] if isinstance(f, dict) else f)
-        img_bytes = _normalizar_imagen_a_jpeg_bytes(raw_data)
 
-        if _HAS_TYPES:
-            parts.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
-        else:
-            parts.append({"inline_data": {"data": img_bytes, "mime_type": "image/jpeg"}})
+# ─────────────────────────────────────────────────────────────────────────────
+# FLUJO PRINCIPAL
+# ─────────────────────────────────────────────────────────────────────────────
 
-    # 3. Obtener Prompts
-    prompt_tasacion = config_prompt.obtener_prompt_tasacion(marca, modelo, anio, horas, observaciones)
+def realizar_peritaje(client, marca, modelo, anio, horas, observaciones, lista_fotos):
+    """
+    Flujo completo:
+      1) TASACIÓN (sin búsqueda) → precio estable
+      2) COMPARABLES (con búsqueda si disponible) → tabla de justificación
+    """
+    fotos_sorted = sorted(lista_fotos, key=lambda f: getattr(f, "name", ""))
+
+    prompt_tasacion    = config_prompt.obtener_prompt_tasacion(marca, modelo, anio, horas, observaciones)
     prompt_comparables = config_prompt.obtener_prompt_comparables(marca, modelo, anio, horas)
 
-    # 4. Configuración de Generación (MÁXIMOS TOKENS: 8192)
-    # Usamos Gemini 2.0 Flash para la tasación visual y Pro para la búsqueda de mercado
-    cfg_peritaje = {
-        "temperature": 0.1,
-        "max_output_tokens": 4096,  # <--- Aquí tienes el chorro de tokens
-    }
-
-    print("🚀 Iniciando Peritaje Multimodal...")
-    res_tasacion = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=[prompt_tasacion, *parts],
-        config=cfg_peritaje
-    )
-
-    print("🔍 Buscando Comparables en Google Search...")
-    cfg_search = {
-        "tools": [{"google_search": {}}],
-        "temperature": 0.0,
-        "max_output_tokens": 4096,
-    }
+    tasacion_txt = _tasacion_sin_busqueda(client, prompt_tasacion, fotos_sorted)
 
     try:
-        res_comparables = client.models.generate_content(
-            model="gemini-2.5-pro",  # Flash es más rápido para Search
-            contents=[prompt_comparables],
-            config=cfg_search
+        comparables_txt = _comparables_con_busqueda(client, prompt_comparables)
+    except Exception as e:
+        comparables_txt = (
+            "BLOQUE: COMPARABLES_TABLA\n"
+            "| WEB | MODELO | AÑO | HORAS | PRECIO |\n"
+            "|---|---|---|---|---|\n"
+            f"| Error | {str(e)} | N/D | N/D | N/D |\n"
         )
-        comparables_txt = res_comparables.text
-    except Exception as e:
-        comparables_txt = f"\n⚠️ Error en búsqueda: {str(e)}"
 
-    return f"{res_tasacion.text}\n\n{comparables_txt}"
-
-
-def extraer_precio_ia(texto, etiqueta):
-    try:
-        import re
-        # Este patrón busca la etiqueta, admite espacios, dos puntos
-        # y captura el primer número que encuentre (aunque tenga puntos o comas)
-        patron = rf"{etiqueta}.*?(\d[\d\.,]*)"
-        match = re.search(patron, texto, re.IGNORECASE)
-
-        if match:
-            # Limpiamos el número: quitamos puntos de miles y pasamos coma a punto decimal
-            valor_limpio = match.group(1).replace(".", "").replace(",", ".")
-            return float(valor_limpio)
-
-        print(f"⚠️ No se encontró la etiqueta {etiqueta} en el informe.")
-        return None
-    except Exception as e:
-        print(f"❌ Error extrayendo {etiqueta}: {e}")
-        return None
+    return f"{tasacion_txt}\n\n{comparables_txt}"

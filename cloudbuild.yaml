@@ -1,27 +1,32 @@
-steps:
-  # 1. COMPILAR LA IMAGEN
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/subida-fotos-drive/pro-app', '.']
-
-  # 2. SUBIR AL REGISTRO
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/subida-fotos-drive/pro-app']
-
-  # 3. DESPLEGAR Y ACTUALIZAR EL LINK
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'deploy'
-      - 'agricolanoroeste-escalable'
-      - '--image'
-      - 'gcr.io/subida-fotos-drive/pro-app'
-      - '--region'
-      - 'us-central1'
-      - '--platform'
-      - 'managed'
-      - '--allow-unauthenticated'
-
-# ESTA ES LA PARTE QUE ARREGLA TU ERROR:
 options:
   logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # 1) Construir la imagen en el repositorio correcto
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - "-t"
+      - "europe-west1-docker.pkg.dev/subida-fotos-drive/cloud-run-source-deploy/advanced-quote:latest"
+      - "."
+
+  # 2) Push a Artifact Registry
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - "europe-west1-docker.pkg.dev/subida-fotos-drive/cloud-run-source-deploy/advanced-quote:latest"
+
+  # 3) Deploy a Cloud Run (Servicio nuevo: advanced-quote-app)
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - advanced-quote-app
+      - "--image=europe-west1-docker.pkg.dev/subida-fotos-drive/cloud-run-source-deploy/advanced-quote:latest"
+      - "--region=europe-west1"
+      - "--platform=managed"
+      - "--allow-unauthenticated"
+
+images:
+  - "europe-west1-docker.pkg.dev/subida-fotos-drive/cloud-run-source-deploy/advanced-quote:latest"
