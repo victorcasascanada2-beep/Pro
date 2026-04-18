@@ -29,8 +29,8 @@ except ImportError:
     _HAS_GOOGLE_AUTH = False
 
 # ── Configuración ──────────────────────────────────────────────────────────
-CLAUDE_MODEL    = "claude-sonnet-4-5@20251001"  # Ajusta al modelo de tu contrato Vertex
-VERTEX_LOCATION = "us-east5"                    # Región con Claude habilitado en Vertex
+CLAUDE_MODEL    = "claude-sonnet-4-6"           # Modelo habilitado en Vertex
+VERTEX_LOCATION = "global"                      # Región habilitada en tu proyecto
 VERTEX_PROJECT  = "subida-fotos-drive"          # Tu proyecto GCP
 
 
